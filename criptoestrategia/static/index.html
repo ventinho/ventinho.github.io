@@ -1,0 +1,171 @@
+<!DOCTYPE html>
+<html lang="pt">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>CriptoEstratégia — Dashboard</title>
+<link rel="stylesheet" href="/static/style.css">
+<script src="/static/chart.umd.min.js"></script>
+</head>
+<body>
+<header>
+  <div class="brand">
+    <h1>CriptoEstratégia</h1>
+    <span class="sub">Paper trading · MEXC Spot · Top 50 volume × volatilidade</span>
+  </div>
+  <div class="status" id="status"></div>
+  <div class="controls">
+    <button id="btn-pause" title="Parar novas entradas (posições abertas continuam geridas)">⏸ Pausar</button>
+    <button id="btn-resume" title="Retomar novas entradas (também limpa o kill switch)">▶ Retomar</button>
+    <button id="btn-closeall" class="danger" title="Fechar todas as posições a mercado">✖ Fechar tudo</button>
+  </div>
+</header>
+
+<nav id="tabs">
+  <button data-tab="overview" class="active">Visão geral</button>
+  <button data-tab="positions">Posições <span id="pos-count" class="badge">0</span></button>
+  <button data-tab="history">Histórico</button>
+  <button data-tab="analysis">Análise</button>
+  <button data-tab="universe">Universo (50)</button>
+  <button data-tab="signals">Sinais</button>
+  <button data-tab="log">Registo</button>
+  <button data-tab="strategy">Estratégia</button>
+</nav>
+
+<main>
+  <!-- VISÃO GERAL -->
+  <section id="tab-overview" class="tab active">
+    <div class="kpis" id="kpis"></div>
+    <div class="grid2">
+      <div class="card wide">
+        <div class="card-h"><h2>Curva de equity (USDT)</h2><span class="hint" id="eq-hint"></span></div>
+        <div class="chart tall"><canvas id="ch-equity"></canvas></div>
+      </div>
+      <div class="card">
+        <div class="card-h"><h2>Drawdown (%)</h2></div>
+        <div class="chart"><canvas id="ch-dd"></canvas></div>
+      </div>
+      <div class="card">
+        <div class="card-h"><h2>PnL diário realizado (USDT)</h2></div>
+        <div class="chart"><canvas id="ch-daily"></canvas></div>
+      </div>
+    </div>
+    <div class="grid2">
+      <div class="card">
+        <div class="card-h"><h2>Posições abertas</h2></div>
+        <div class="table-wrap"><table id="t-pos-mini"></table></div>
+      </div>
+      <div class="card">
+        <div class="card-h"><h2>Último scan</h2></div>
+        <div id="scan"></div>
+      </div>
+    </div>
+  </section>
+
+  <!-- POSIÇÕES -->
+  <section id="tab-positions" class="tab">
+    <div class="card">
+      <div class="card-h"><h2>Posições abertas · PnL flutuante em tempo real</h2></div>
+      <div class="table-wrap"><table id="t-pos"></table></div>
+    </div>
+  </section>
+
+  <!-- HISTÓRICO -->
+  <section id="tab-history" class="tab">
+    <div class="card">
+      <div class="card-h">
+        <h2>Trades fechados</h2>
+        <div class="filters">
+          <input id="f-sym" placeholder="Filtrar moeda…">
+          <select id="f-res"><option value="">Todos</option><option value="w">Ganhos</option><option value="l">Perdas</option></select>
+          <a class="btn" href="/api/export/trades.csv">⬇ trades.csv</a>
+          <a class="btn" href="/api/export/fills.csv">⬇ execuções.csv</a>
+          <a class="btn" href="/api/export/equity.csv">⬇ equity.csv</a>
+        </div>
+      </div>
+      <div class="table-wrap"><table id="t-trades"></table></div>
+    </div>
+    <div class="card">
+      <div class="card-h"><h2>Execuções (entradas, parciais e saídas)</h2></div>
+      <div class="table-wrap short"><table id="t-fills"></table></div>
+    </div>
+  </section>
+
+  <!-- ANÁLISE -->
+  <section id="tab-analysis" class="tab">
+    <div class="grid2">
+      <div class="card"><div class="card-h"><h2>Estatísticas completas</h2></div><div id="stats-table" class="stats-table"></div></div>
+      <div class="card"><div class="card-h"><h2>Distribuição de R-múltiplos</h2></div><div class="chart"><canvas id="ch-r"></canvas></div>
+        <div class="card-h"><h2>Motivos de saída</h2></div><div class="chart"><canvas id="ch-exit"></canvas></div></div>
+      <div class="card"><div class="card-h"><h2>PnL por moeda (USDT)</h2></div><div class="chart tall"><canvas id="ch-sym"></canvas></div></div>
+      <div class="card"><div class="card-h"><h2>PnL por hora de entrada (UTC)</h2></div><div class="chart"><canvas id="ch-hour"></canvas></div>
+        <div class="card-h"><h2>PnL por dia da semana</h2></div><div class="chart"><canvas id="ch-wday"></canvas></div></div>
+    </div>
+    <div class="card"><div class="card-h"><h2>Desempenho por moeda</h2></div><div class="table-wrap"><table id="t-sym"></table></div></div>
+  </section>
+
+  <!-- UNIVERSO -->
+  <section id="tab-universe" class="tab">
+    <div class="card">
+      <div class="card-h"><h2>Top 50 MEXC · score = 60% rank volume + 40% rank volatilidade</h2><span class="hint" id="uni-hint"></span></div>
+      <div class="table-wrap"><table id="t-uni"></table></div>
+    </div>
+  </section>
+
+  <!-- SINAIS -->
+  <section id="tab-signals" class="tab">
+    <div class="card">
+      <div class="card-h"><h2>Sinais detetados (entradas e ignorados)</h2></div>
+      <div class="table-wrap"><table id="t-sig"></table></div>
+    </div>
+  </section>
+
+  <!-- REGISTO -->
+  <section id="tab-log" class="tab">
+    <div class="card">
+      <div class="card-h"><h2>Registo de eventos</h2></div>
+      <div class="table-wrap"><table id="t-log"></table></div>
+    </div>
+  </section>
+
+  <!-- ESTRATÉGIA -->
+  <section id="tab-strategy" class="tab">
+    <div class="grid2">
+      <div class="card prose">
+        <h2>Como o bot negoceia</h2>
+        <h3>1 · Universo</h3>
+        <p>A cada 4h lê os tickers 24h da MEXC e fica com os pares USDT de volume ≥ 2M (sem stablecoins, tokens alavancados nem pumps &gt; 80%). Do top 150 por volume escolhe os 50 com melhor score: <b>60% rank de volume + 40% rank de volatilidade</b>.</p>
+        <h3>2 · Entrada (long, spot) — vela de 15m fechada</h3>
+        <ul>
+          <li>Tendência 1h: EMA50 &gt; EMA200 e preço &gt; EMA50</li>
+          <li>15m: EMA9 &gt; EMA21 &gt; EMA50</li>
+          <li>Gatilho: cruzamento EMA9/21 nas últimas 3 velas <i>ou</i> pullback à EMA21 com vela verde</li>
+          <li>RSI 50–70 · ADX ≥ 20 · MACD a acelerar · volume ≥ 1,2× (cruz.) / 0,8× (pullback)</li>
+          <li>ATR entre 0,25% e 6% · preço no máximo 1,5 ATR acima da EMA21</li>
+          <li>Score 0–100 ≥ 55 (≥ 70 se o BTC estiver abaixo da EMA50 1h). Os melhores scores entram primeiro.</li>
+        </ul>
+        <h3>3 · Risco</h3>
+        <ul>
+          <li>Arrisca <b>1% do equity</b> por trade (0,5% com o BTC em baixa)</li>
+          <li>Máx. 25% do equity por posição · máx. 5 posições</li>
+          <li>Perda diária de 5% ⇒ pausa até 00:00 UTC · drawdown de 30% ⇒ kill switch</li>
+          <li>Cooldown de 60 min por moeda (180 min depois de uma perda)</li>
+        </ul>
+        <h3>4 · Saídas</h3>
+        <ul>
+          <li><b>SL</b> = entrada − 1,5 ATR (ou abaixo do mínimo das 5 velas), limitado a 1%–6%</li>
+          <li><b>TP1</b> = +1,5R: vende 50% e o SL passa para breakeven</li>
+          <li><b>Trailing</b> após TP1: máximo − 2 ATR</li>
+          <li><b>TP2</b> = +3R: vende o resto</li>
+          <li><b>Time stop</b> 48h · <b>Estagnação</b>: 12h sem +0,5R · <b>Tendência 1h quebrou</b> antes do TP1</li>
+        </ul>
+        <p class="muted">Custos simulados: taxa taker 0,05% por lado + slippage 0,05%.</p>
+      </div>
+      <div class="card"><div class="card-h"><h2>Parâmetros ativos (config.py)</h2></div><div id="cfg" class="stats-table"></div></div>
+    </div>
+  </section>
+</main>
+<footer>Simulação com dinheiro fictício. Resultados passados ou simulados não garantem resultados futuros. Não é aconselhamento financeiro.</footer>
+<script src="/static/app.js"></script>
+</body>
+</html>
