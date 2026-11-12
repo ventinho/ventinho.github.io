@@ -11,8 +11,9 @@ WORKDIR /app
 COPY *.py ./
 COPY static ./static
 
-RUN useradd --create-home --uid 1000 bot && mkdir -p /app/data && chown -R bot:bot /app
-USER bot
+# Corre como root dentro do contentor para conseguir escrever sempre na pasta ./data montada do PC
+# (o Docker cria-a como root; com um utilizador sem privilégios a base de dados não abria).
+RUN mkdir -p /app/data
 
 EXPOSE 8050
 VOLUME ["/app/data"]
