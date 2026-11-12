@@ -37,8 +37,11 @@ const esc = s => String(s ?? '').replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '
 const api = p => fetch(p, { cache: 'no-store' }).then(r => r.json());
 
 function table(el, cols, rows, empty = 'Sem dados ainda.') {
+  // k: célula principal do cartão (telemóvel) · w: ocupa a largura toda no cartão · m:0 escondida no telemóvel
+  const label = c => esc(String(c.h).replace(/<[^>]*>/g, ''));
+  const tdCls = c => [c.l ? 'l' : '', c.k ? 'key' : '', c.w ? 'full' : '', c.h ? '' : 'nolabel full', c.m === 0 ? 'dm' : ''].join(' ').trim();
   const h = '<thead><tr>' + cols.map(c => `<th class="${c.l ? 'l' : ''}" title="${esc(c.t || '')}">${c.h}</th>`).join('') + '</tr></thead>';
-  const b = rows.length ? rows.map(r => '<tr>' + cols.map(c => `<td class="${c.l ? 'l' : ''}">${c.f(r)}</td>`).join('') + '</tr>').join('')
+  const b = rows.length ? rows.map(r => '<tr>' + cols.map(c => `<td class="${tdCls(c)}" data-label="${label(c)}">${c.f(r)}</td>`).join('') + '</tr>').join('')
     : `<tr><td class="l muted" colspan="${cols.length}">${empty}</td></tr>`;
   document.getElementById(el).innerHTML = h + '<tbody>' + b + '</tbody>';
 }
@@ -60,9 +63,11 @@ window.closePos = (id, s) => confirm(`Fechar a posição #${id} (${s}) a mercado
 
 // ── gráficos ──
 const charts = {};
+const narrow = () => window.matchMedia('(max-width: 720px)').matches;
 const timeAxis = {
   type: 'linear', grid: { display: false },
-  ticks: { maxTicksLimit: 8, callback: v => new Date(v).toLocaleString('pt-PT', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' }) },
+  ticks: { maxTicksLimit: narrow() ? 4 : 8, maxRotation: 0, autoSkipPadding: 12,
+    callback: v => v < 1e12 ? '' : new Date(v).toLocaleString('pt-PT', narrow() ? { hour: '2-digit', minute: '2-digit' } : { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' }) },
 };
 const yAxis = (fmt = v => nf(v, 2)) => ({ grid: { color: C.grid }, border: { display: false }, ticks: { callback: fmt } });
 function mk(id, cfg) {
@@ -179,17 +184,17 @@ function slTpBar(p) {
 function drawPositions(P) {
   document.getElementById('pos-count').textContent = P.length;
   const full = [
-    { h: '#', l: 1, f: p => p.id }, { h: 'Contrato', l: 1, f: p => sym(p.symbol) }, { h: 'Lado', l: 1, f: p => sideTag(p.side) + ` <span class="muted">${p.leverage}x</span>` },
-    { h: 'Entrada', f: p => dt(p.entry_time) }, { h: 'Idade', f: p => dur(p.age_min) },
+    { h: '#', l: 1, m: 0, f: p => p.id }, { h: 'Contrato', l: 1, k: 1, f: p => sym(p.symbol) }, { h: 'Lado', l: 1, f: p => sideTag(p.side) + ` <span class="muted">${p.leverage}x</span>` },
+    { h: 'Entrada', m: 0, f: p => dt(p.entry_time) }, { h: 'Idade', f: p => dur(p.age_min) },
     { h: 'Preço entrada', f: p => px(p.entry_price) }, { h: 'Preço atual', f: p => px(p.price), t: 'Long: bid · Short: ask (preço real de fecho)' },
-    { h: 'Contratos', f: p => nf(p.contracts_open ?? p.contracts, 0) }, { h: 'Notional', f: p => nf(p.value, 2) }, { h: 'Margem', f: p => nf(p.margin_open, 2) },
+    { h: 'Contratos', m: 0, f: p => nf(p.contracts_open ?? p.contracts, 0) }, { h: 'Notional', f: p => nf(p.value, 2) }, { h: 'Margem', f: p => nf(p.margin_open, 2) },
     { h: 'PnL flutuante', f: p => pnl(p.unrealized_pnl, 4) }, { h: 'ROE', f: p => pct(p.roe_pct), t: 'Retorno sobre a margem (com alavancagem)' },
     { h: 'Realizado', f: p => pnl(p.realized_pnl, 4), t: 'TP1 parcial + funding' }, { h: 'R atual', f: p => `<span class="${cls(p.r_now)}">${sgn(p.r_now, 2, 'R')}</span>` },
     { h: 'SL', f: p => px(p.sl) + (p.sl !== p.initial_sl ? ' <span class="tag">movido</span>' : '') }, { h: 'TP1', f: p => px(p.tp1) + (p.tp1_hit ? ' <span class="tag win">feito</span>' : '') },
-    { h: 'TP2', f: p => px(p.tp2) }, { h: 'SL ↔ alvo', f: slTpBar, t: 'Barra entre o stop atual e o próximo alvo; o traço é o preço atual' },
+    { h: 'TP2', f: p => px(p.tp2) }, { h: 'SL ↔ alvo', w: 1, f: slTpBar, t: 'Barra entre o stop atual e o próximo alvo; o traço é o preço atual' },
     { h: 'Liquidação', f: p => px(p.liq_price) + ` <span class="muted">(${nf(p.dist_liq_pct, 1)}%)</span>` },
-    { h: 'Funding', f: p => pnl(p.funding_total, 4) }, { h: 'Risco (1R)', f: p => nf(p.risk_usdt, 4) }, { h: 'Score', f: p => nf(p.score, 1) },
-    { h: 'BTC', f: p => p.market_regime || '' }, { h: 'Motivo', l: 1, f: p => `<span class="muted">${esc(p.entry_reason)}</span>` },
+    { h: 'Funding', f: p => pnl(p.funding_total, 4) }, { h: 'Risco (1R)', m: 0, f: p => nf(p.risk_usdt, 4) }, { h: 'Score', m: 0, f: p => nf(p.score, 1) },
+    { h: 'BTC', m: 0, f: p => p.market_regime || '' }, { h: 'Motivo', l: 1, w: 1, m: 0, f: p => `<span class="muted">${esc(p.entry_reason)}</span>` },
     { h: '', f: p => `<button onclick="closePos(${p.id}, '${p.symbol}')">Fechar</button>` },
   ];
   table('t-pos', full, P, 'Sem posições abertas. O bot procura entradas a cada vela de 1m fechada.');
@@ -243,12 +248,12 @@ function drawAnalysis(d) {
   setData(wc, wd.map(w => WD[w.day]), [{ data: wd.map(w => w.pnl), backgroundColor: barColors(wd.map(w => w.pnl)) }]);
 
   table('t-side', [
-    { h: 'Lado', l: 1, f: s => sideTag(s.side) }, { h: 'Trades', f: s => s.trades }, { h: 'Win rate', f: s => nf(s.win_rate, 1) + '%' },
+    { h: 'Lado', l: 1, k: 1, f: s => sideTag(s.side) }, { h: 'Trades', f: s => s.trades }, { h: 'Win rate', f: s => nf(s.win_rate, 1) + '%' },
     { h: 'PnL', f: s => pnl(s.pnl, 4) }, { h: 'R total', f: s => `<span class="${cls(s.r)}">${sgn(s.r, 2, 'R')}</span>` },
     { h: 'R médio', f: s => sgn(s.r / s.trades, 3, 'R') },
   ], d.by_side);
   table('t-sym', [
-    { h: 'Contrato', l: 1, f: s => sym(s.symbol) }, { h: 'Trades', f: s => s.trades }, { h: 'Win rate', f: s => nf(s.win_rate, 1) + '%' },
+    { h: 'Contrato', l: 1, k: 1, f: s => sym(s.symbol) }, { h: 'Trades', f: s => s.trades }, { h: 'Win rate', f: s => nf(s.win_rate, 1) + '%' },
     { h: 'PnL', f: s => pnl(s.pnl, 4) }, { h: 'R total', f: s => `<span class="${cls(s.r)}">${sgn(s.r, 2, 'R')}</span>` },
   ], d.by_symbol);
 }
@@ -265,7 +270,7 @@ function drawTrades() {
   const r = document.getElementById('f-res').value;
   const rows = tradesCache.filter(t => (!q || t.symbol.includes(q)) && (!r || (r === 'w' ? t.pnl > 0 : t.pnl <= 0)));
   table('t-trades', [
-    { h: '#', l: 1, f: t => t.id }, { h: 'Contrato', l: 1, f: t => sym(t.symbol) }, { h: 'Lado', l: 1, f: t => sideTag(t.side) + ` <span class="muted">${t.leverage}x</span>` },
+    { h: '#', l: 1, m: 0, f: t => t.id }, { h: 'Contrato', l: 1, k: 1, f: t => sym(t.symbol) }, { h: 'Lado', l: 1, f: t => sideTag(t.side) + ` <span class="muted">${t.leverage}x</span>` },
     { h: 'Entrada', f: t => dt(t.entry_time) }, { h: 'Saída', f: t => dt(t.exit_time) },
     { h: 'Duração', f: t => dur(t.duration_min) }, { h: 'Preço entrada', f: t => px(t.entry_price) }, { h: 'Preço saída (médio)', f: t => px(t.exit_price) },
     { h: 'Notional', f: t => nf(t.notional, 2) }, { h: 'Margem', f: t => nf(t.margin, 2) }, { h: 'PnL', f: t => pnl(t.pnl, 4) },
@@ -273,8 +278,8 @@ function drawTrades() {
     { h: 'R', f: t => `<span class="${cls(t.r_multiple)}">${sgn(t.r_multiple, 2, 'R')}</span>` },
     { h: 'Saída', l: 1, f: t => `<span class="tag ${t.pnl > 0 ? 'win' : 'loss'}">${esc(t.exit_reason)}</span>` },
     { h: 'TP1', f: t => t.tp1_hit ? '✓' : '' }, { h: 'MFE', f: t => pct(t.mfe_pct), t: 'Máximo a favor' }, { h: 'MAE', f: t => pct(t.mae_pct), t: 'Máximo contra' },
-    { h: 'Taxas', f: t => nf(t.fees_total, 4) }, { h: 'Funding', f: t => pnl(t.funding_total, 4) }, { h: 'Score', f: t => nf(t.score, 1) }, { h: 'BTC', f: t => t.market_regime || '' },
-    { h: 'Motivo entrada', l: 1, f: t => `<span class="muted">${esc(t.entry_reason)}</span>` },
+    { h: 'Taxas', f: t => nf(t.fees_total, 4) }, { h: 'Funding', f: t => pnl(t.funding_total, 4) }, { h: 'Score', m: 0, f: t => nf(t.score, 1) }, { h: 'BTC', m: 0, f: t => t.market_regime || '' },
+    { h: 'Motivo entrada', l: 1, w: 1, m: 0, f: t => `<span class="muted">${esc(t.entry_reason)}</span>` },
   ], rows, 'Ainda não há trades fechados.');
 }
 document.getElementById('f-sym').oninput = drawTrades;
@@ -296,7 +301,7 @@ async function refresh() {
       const [tr, fl] = await Promise.all([api('/api/trades?limit=2000'), api('/api/fills?limit=500')]);
       tradesCache = tr; drawTrades();
       table('t-fills', [
-        { h: '#', l: 1, f: f => f.id }, { h: 'Trade', l: 1, f: f => '#' + f.trade_id }, { h: 'Hora', f: f => dt(f.time) }, { h: 'Moeda', l: 1, f: f => sym(f.symbol) },
+        { h: '#', l: 1, m: 0, f: f => f.id }, { h: 'Trade', l: 1, f: f => '#' + f.trade_id }, { h: 'Hora', f: f => dt(f.time) }, { h: 'Moeda', l: 1, k: 1, f: f => sym(f.symbol) },
         { h: 'Ordem', l: 1, f: f => `<span class="tag ${f.kind === 'ENTRADA' ? 'entry' : f.pnl > 0 ? 'win' : 'loss'}">${f.action === 'BUY' ? 'COMPRA' : f.action === 'SELL' ? 'VENDA' : 'FUNDING'}</span>` },
         { h: 'Tipo', l: 1, f: f => esc(f.kind) }, { h: 'Preço', f: f => px(f.price) }, { h: 'Qtd', f: f => nf(f.qty, 4) }, { h: 'Valor', f: f => nf(f.notional, 2) },
         { h: 'Taxa', f: f => nf(f.fee, 4) }, { h: 'PnL', f: f => f.kind === 'ENTRADA' ? '' : pnl(f.pnl, 4) }, { h: 'Saldo depois', f: f => nf(f.balance_after, 2) },
@@ -306,7 +311,7 @@ async function refresh() {
       document.getElementById('uni-hint').textContent = u.length ? 'Atualizado ' + dt(u[0].updated_at) : '';
       const open = new Set(pos.map(p => p.symbol));
       table('t-uni', [
-        { h: '#', l: 1, f: r => r.rank }, { h: 'Contrato', l: 1, f: r => sym(r.symbol) + (open.has(r.symbol) ? ' <span class="tag entry">em posição</span>' : '') },
+        { h: '#', l: 1, m: 0, f: r => r.rank }, { h: 'Contrato', l: 1, k: 1, f: r => `<span class="muted">${r.rank}.</span> ` + sym(r.symbol) + (open.has(r.symbol) ? ' <span class="tag entry">em posição</span>' : '') },
         { h: 'Score', f: r => nf(r.score, 1) }, { h: 'Volume 24h (USDT)', f: r => nf(r.quote_volume / 1e6, 2) + 'M' },
         { h: 'Volatilidade 24h', f: r => nf(r.volatility_pct, 2) + '%', t: '(máximo − mínimo) / mínimo' }, { h: 'Variação 24h', f: r => pct(r.change_pct) },
         { h: 'Spread', f: r => r.spread_pct == null ? '—' : nf(r.spread_pct, 3) + '%', t: 'Diferença entre o melhor preço de venda (ask) e de compra (bid)' },
@@ -317,15 +322,15 @@ async function refresh() {
     } else if (tab === 'signals') {
       const s = await api('/api/signals?limit=500');
       table('t-sig', [
-        { h: 'Hora', l: 1, f: r => dt(r.time) }, { h: 'Contrato', l: 1, f: r => sym(r.symbol) }, { h: 'Lado', l: 1, f: r => r.side ? sideTag(r.side) : '' }, { h: 'Preço', f: r => px(r.price) }, { h: 'Score', f: r => nf(r.score, 1) },
+        { h: 'Hora', l: 1, f: r => dt(r.time) }, { h: 'Contrato', l: 1, k: 1, f: r => sym(r.symbol) }, { h: 'Lado', l: 1, f: r => r.side ? sideTag(r.side) : '' }, { h: 'Preço', f: r => px(r.price) }, { h: 'Score', f: r => nf(r.score, 1) },
         { h: 'Decisão', l: 1, f: r => `<span class="tag ${r.decision === 'ENTRADA' ? 'entry' : ''}">${r.decision}</span>` },
-        { h: 'Detalhe', l: 1, f: r => `<span class="muted">${esc(r.detail)}</span>` },
+        { h: 'Detalhe', l: 1, w: 1, f: r => `<span class="muted">${esc(r.detail)}</span>` },
       ], s, 'Ainda não houve sinais que passassem todos os filtros.');
     } else if (tab === 'log') {
       const e = await api('/api/events?limit=500');
       table('t-log', [
         { h: 'Hora', l: 1, f: r => dt(r.time) }, { h: 'Nível', l: 1, f: r => `<span class="tag ${r.level === 'ERRO' || r.level === 'ALERTA' ? 'loss' : r.level === 'TRADE' ? 'entry' : ''}">${r.level}</span>` },
-        { h: 'Mensagem', l: 1, f: r => esc(r.message) },
+        { h: 'Mensagem', l: 1, w: 1, f: r => esc(r.message) },
       ], e);
     } else if (tab === 'strategy') {
       const c = await api('/api/config');
