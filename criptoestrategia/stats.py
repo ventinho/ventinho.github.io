@@ -46,10 +46,9 @@ def compute(db, engine):
     open_tr = db.open_trades()
     eq = db.q("SELECT time, equity, drawdown_pct FROM equity ORDER BY time")
     cap0 = db.get_state("capital_inicial", C.CAPITAL_INICIAL)
-    equity, pos_val = engine.equity(open_tr)
-    upnl = sum((engine.prices.get(t["symbol"], t["current_price"] or t["entry_price"]) - t["entry_price"]) * t["qty_open"]
-               for t in open_tr)
+    equity, margin_used, notional_open, upnl = engine.equity(open_tr)
     realized_partial_open = sum(t["realized_pnl"] for t in open_tr)
+    funding = db.one("SELECT COALESCE(SUM(pnl),0) f FROM fills WHERE kind='FUNDING'")["f"]
 
     pnls = [t["pnl"] for t in closed]
     wins = [p for p in pnls if p > 0]
@@ -59,6 +58,7 @@ def compute(db, engine):
     rs = [t["r_multiple"] or 0 for t in closed]
     best_w, best_l, cur_streak = streaks(pnls)
     fees = db.one("SELECT COALESCE(SUM(fee),0) f FROM fills")["f"]
+    n = len(pnls)
 
     max_dd = max((e["drawdown_pct"] for e in eq), default=0)
     peak_curve, max_dd_usdt = 0, 0
@@ -71,12 +71,17 @@ def compute(db, engine):
     net = equity - cap0
 
     summary = {
-        "capital_inicial": cap0, "equity": equity, "cash": engine.cash, "positions_value": pos_val,
+        "capital_inicial": cap0, "equity": equity, "balance": engine.balance, "margin_used": margin_used,
+        "available": equity - margin_used, "notional_open": notional_open, "leverage": C.ALAVANCAGEM,
+        "effective_leverage": notional_open / equity if equity else 0, "funding": funding,
+        "longs": sum(1 for t in closed if t["side"] == "LONG"), "shorts": sum(1 for t in closed if t["side"] == "SHORT"),
+        "avg_roe": sum(t["roe_pct"] or 0 for t in closed) / n if n else None,
+        "liquidations": sum(1 for t in closed if t["exit_reason"] == "LIQUIDAÇÃO"),
         "net_pnl": net, "return_pct": net / cap0 * 100,
         "realized_pnl": sum(pnls) + realized_partial_open, "unrealized_pnl": upnl,
         "peak": engine.peak, "drawdown_pct": (engine.peak - equity) / engine.peak * 100 if engine.peak else 0,
         "max_drawdown_pct": max_dd, "max_drawdown_usdt": max_dd_usdt,
-        "exposure_pct": pos_val / equity * 100 if equity else 0,
+        "exposure_pct": notional_open / equity * 100 if equity else 0,
         "open_positions": len(open_tr), "max_positions": C.MAX_POSICOES,
         "trades": n, "wins": len(wins), "losses": len(losses),
         "win_rate": len(wins) / n * 100 if n else None,
@@ -97,7 +102,7 @@ def compute(db, engine):
         "recovery_factor": net / max_dd_usdt if max_dd_usdt else None,
         "trades_per_day": n / days, "days_running": days,
         "tp1_rate": sum(1 for t in closed if t["tp1_hit"]) / n * 100 if n else None,
-        "volume_traded": db.one("SELECT COALESCE(SUM(notional),0) v FROM fills")["v"],
+        "volume_traded": db.one("SELECT COALESCE(SUM(notional),0) v FROM fills WHERE kind<>'FUNDING'")["v"],
     }
     if summary["profit_factor"] == float("inf"):
         summary["profit_factor"] = None
@@ -107,6 +112,7 @@ def compute(db, engine):
     by_exit = defaultdict(lambda: {"count": 0, "pnl": 0.0})
     by_hour = defaultdict(lambda: {"trades": 0, "wins": 0, "pnl": 0.0})
     by_wday = defaultdict(lambda: {"trades": 0, "pnl": 0.0})
+    by_side = defaultdict(lambda: {"trades": 0, "wins": 0, "pnl": 0.0, "r": 0.0})
     daily = defaultdict(float)
     for t in closed:
         s = by_sym[t["symbol"]]
@@ -121,10 +127,15 @@ def compute(db, engine):
         h["trades"] += 1
         h["wins"] += t["pnl"] > 0
         h["pnl"] += t["pnl"]
+        sd = by_side[t["side"]]
+        sd["trades"] += 1
+        sd["wins"] += t["pnl"] > 0
+        sd["pnl"] += t["pnl"]
+        sd["r"] += t["r_multiple"] or 0
         w = by_wday[int(_dt(t["entry_time"], "%w"))]
         w["trades"] += 1
         w["pnl"] += t["pnl"]
-    for f in db.q("SELECT time, pnl FROM fills WHERE action='SELL'"):
+    for f in db.q("SELECT time, pnl FROM fills WHERE kind<>'ENTRADA'"):
         daily[_dt(f["time"], "%Y-%m-%d")] += f["pnl"]
     buckets = [(-99, -1.5), (-1.5, -1), (-1, -0.5), (-0.5, 0), (0, 0.5), (0.5, 1), (1, 1.5), (1.5, 2), (2, 2.5), (2.5, 99)]
     labels = ["< -1.5R", "-1.5..-1R", "-1..-0.5R", "-0.5..0R", "0..0.5R", "0.5..1R", "1..1.5R", "1.5..2R", "2..2.5R", "> 2.5R"]
@@ -134,6 +145,7 @@ def compute(db, engine):
         "summary": summary,
         "by_symbol": sorted(({"symbol": k, **v, "win_rate": v["wins"] / v["trades"] * 100} for k, v in by_sym.items()),
                             key=lambda x: x["pnl"], reverse=True),
+        "by_side": [{"side": k, **v, "win_rate": v["wins"] / v["trades"] * 100} for k, v in sorted(by_side.items())],
         "by_exit": [{"reason": k, **v} for k, v in sorted(by_exit.items(), key=lambda x: -x[1]["count"])],
         "by_hour": [{"hour": h, **by_hour[h]} for h in range(24)],
         "by_weekday": [{"day": d, **by_wday[d]} for d in range(7)],

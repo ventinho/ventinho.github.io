@@ -1,0 +1,19 @@
+services:
+  criptoestrategia:
+    build: .
+    image: criptoestrategia:latest
+    container_name: criptoestrategia
+    restart: unless-stopped
+    ports:
+      # Dashboard em http://192.168.1.64:8050
+      # Se o IP do PC mudar, troca para "8050:8050" (todas as interfaces).
+      - "192.168.1.64:8050:8050"
+    volumes:
+      - ./data:/app/data          # base de dados SQLite fica fora do contentor
+    environment:
+      - TZ=Europe/Lisbon
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"

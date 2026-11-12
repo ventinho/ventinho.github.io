@@ -44,7 +44,8 @@ def make_handler(db, engine):
                     return self._file(p[len("/static/"):])
                 if p == "/api/status":
                     return self._send(200, {
-                        "source": engine.mx.name, "demo": engine.mx.demo, "now": engine.mx.now_ms(),
+                        "source": engine.mx.name, "demo": False, "now": engine.mx.now_ms(),
+                        "leverage": C.ALAVANCAGEM, "shorts": C.PERMITIR_SHORT,
                         "paused": engine.paused, "kill": engine.kill, "daily_block": getattr(engine, "daily_block", False),
                         "last_error": engine.last_error, "universe_size": len(engine.universe),
                         "universe_at": engine.last_universe, "last_scan": db.get_state("last_scan"),
@@ -58,19 +59,8 @@ def make_handler(db, engine):
                     rows = rows[::step] + (rows[-1:] if rows and (len(rows) - 1) % step else [])
                     return self._send(200, rows)
                 if p == "/api/positions":
-                    out = []
-                    for t in db.open_trades():
-                        px = engine.prices.get(t["symbol"], t["current_price"] or t["entry_price"])
-                        upnl = (px - t["entry_price"]) * t["qty_open"]
-                        t.update({"price": px, "unrealized_pnl": upnl,
-                                  "unrealized_pct": (px / t["entry_price"] - 1) * 100,
-                                  "r_now": (upnl + t["realized_pnl"]) / t["risk_usdt"] if t["risk_usdt"] else 0,
-                                  "value": px * t["qty_open"],
-                                  "dist_sl_pct": (px / t["sl"] - 1) * 100,
-                                  "dist_tp_pct": ((t["tp2"] if t["tp1_hit"] else t["tp1"]) / px - 1) * 100,
-                                  "age_min": (engine.mx.now_ms() - t["entry_time"]) / 60000})
-                        out.append(t)
-                    return self._send(200, out)
+                    now = engine.mx.now_ms()
+                    return self._send(200, [engine.position_view(t, now) for t in db.open_trades()])
                 if p == "/api/trades":
                     return self._send(200, db.q("SELECT * FROM trades WHERE status='CLOSED' ORDER BY exit_time DESC LIMIT ?", (limit,)))
                 if p == "/api/fills":

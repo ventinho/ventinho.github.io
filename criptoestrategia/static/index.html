@@ -11,7 +11,7 @@
 <header>
   <div class="brand">
     <h1>CriptoEstratégia</h1>
-    <span class="sub">Paper trading · MEXC Spot · Top 50 volume × volatilidade</span>
+    <span class="sub">Paper trading · MEXC Futuros (dados reais) · 5x · 1m · EMA 9 / EMA 20 · Top 50 volume × volatilidade</span>
   </div>
   <div class="status" id="status"></div>
   <div class="controls">
@@ -26,7 +26,7 @@
   <button data-tab="positions">Posições <span id="pos-count" class="badge">0</span></button>
   <button data-tab="history">Histórico</button>
   <button data-tab="analysis">Análise</button>
-  <button data-tab="universe">Universo (50)</button>
+  <button data-tab="universe">Universo</button>
   <button data-tab="signals">Sinais</button>
   <button data-tab="log">Registo</button>
   <button data-tab="strategy">Estratégia</button>
@@ -97,17 +97,18 @@
       <div class="card"><div class="card-h"><h2>Estatísticas completas</h2></div><div id="stats-table" class="stats-table"></div></div>
       <div class="card"><div class="card-h"><h2>Distribuição de R-múltiplos</h2></div><div class="chart"><canvas id="ch-r"></canvas></div>
         <div class="card-h"><h2>Motivos de saída</h2></div><div class="chart"><canvas id="ch-exit"></canvas></div></div>
-      <div class="card"><div class="card-h"><h2>PnL por moeda (USDT)</h2></div><div class="chart tall"><canvas id="ch-sym"></canvas></div></div>
+      <div class="card"><div class="card-h"><h2>PnL por contrato (USDT)</h2></div><div class="chart tall"><canvas id="ch-sym"></canvas></div></div>
       <div class="card"><div class="card-h"><h2>PnL por hora de entrada (UTC)</h2></div><div class="chart"><canvas id="ch-hour"></canvas></div>
         <div class="card-h"><h2>PnL por dia da semana</h2></div><div class="chart"><canvas id="ch-wday"></canvas></div></div>
     </div>
-    <div class="card"><div class="card-h"><h2>Desempenho por moeda</h2></div><div class="table-wrap"><table id="t-sym"></table></div></div>
+    <div class="card"><div class="card-h"><h2>Long vs Short</h2></div><div class="table-wrap"><table id="t-side"></table></div></div>
+    <div class="card"><div class="card-h"><h2>Desempenho por contrato</h2></div><div class="table-wrap"><table id="t-sym"></table></div></div>
   </section>
 
   <!-- UNIVERSO -->
   <section id="tab-universe" class="tab">
     <div class="card">
-      <div class="card-h"><h2>Top 50 MEXC · score = 60% rank volume + 40% rank volatilidade</h2><span class="hint" id="uni-hint"></span></div>
+      <div class="card-h"><h2>Top 50 contratos de futuros MEXC · score = 60% rank volume + 40% rank volatilidade</h2><span class="hint" id="uni-hint"></span></div>
       <div class="table-wrap"><table id="t-uni"></table></div>
     </div>
   </section>
@@ -132,34 +133,33 @@
   <section id="tab-strategy" class="tab">
     <div class="grid2">
       <div class="card prose">
-        <h2>Como o bot negoceia</h2>
-        <h3>1 · Universo</h3>
-        <p>A cada 4h lê os tickers 24h da MEXC e fica com os pares USDT de volume ≥ 2M (sem stablecoins, tokens alavancados nem pumps &gt; 80%). Do top 150 por volume escolhe os 50 com melhor score: <b>60% rank de volume + 40% rank de volatilidade</b>.</p>
-        <h3>2 · Entrada (long, spot) — vela de 15m fechada</h3>
+        <h2>Como o bot negoceia — Futuros MEXC 5x · EMA 9 / EMA 20 no 1 minuto</h2>
+        <h3>1 · Universo (dados reais da MEXC Futuros)</h3>
+        <p>De hora a hora lê todos os contratos perpétuos USDT da MEXC e exclui ações, ETFs, metais e forex (tradfi), stablecoins, contratos com volume 24h &lt; 2M USDT, spread &gt; 0,10% ou variação &gt; 80%. Escolhe os 50 com melhor score: <b>60% rank de volume + 40% rank de volatilidade</b>.</p>
+        <h3>2 · Entrada — a cada vela de 1m fechada</h3>
         <ul>
-          <li>Tendência 1h: EMA50 &gt; EMA200 e preço &gt; EMA50</li>
-          <li>15m: EMA9 &gt; EMA21 &gt; EMA50</li>
-          <li>Gatilho: cruzamento EMA9/21 nas últimas 3 velas <i>ou</i> pullback à EMA21 com vela verde</li>
-          <li>RSI 50–70 · ADX ≥ 20 · MACD a acelerar · volume ≥ 1,2× (cruz.) / 0,8× (pullback)</li>
-          <li>ATR entre 0,25% e 6% · preço no máximo 1,5 ATR acima da EMA21</li>
-          <li>Score 0–100 ≥ 55 (≥ 70 se o BTC estiver abaixo da EMA50 1h). Os melhores scores entram primeiro.</li>
+          <li><b>LONG:</b> EMA9 acima da EMA20 (a subir) + cruzamento para cima ou pullback à zona EMA9/20 com vela verde</li>
+          <li><b>SHORT:</b> EMA9 abaixo da EMA20 (a descer) + cruzamento para baixo ou pullback com vela vermelha</li>
+          <li>Volume ≥ 1,3× a média (cruzamento) / ≥ 0,8× (pullback) · RSI 50–75 (short 25–50) · ATR do 1m entre 0,08% e 1,5% · no máximo 2 ATR da EMA20</li>
+          <li>Filtro de tendência 15m: long só acima da EMA50, short só abaixo (desligável em <code>config.py</code>)</li>
+          <li>Score 0–100 ≥ 50 (≥ 65 contra a tendência do BTC)</li>
         </ul>
-        <h3>3 · Risco</h3>
+        <h3>3 · Risco (5x, margem isolada)</h3>
         <ul>
-          <li>Arrisca <b>1% do equity</b> por trade (0,5% com o BTC em baixa)</li>
-          <li>Máx. 25% do equity por posição · máx. 5 posições</li>
-          <li>Perda diária de 5% ⇒ pausa até 00:00 UTC · drawdown de 30% ⇒ kill switch</li>
-          <li>Cooldown de 60 min por moeda (180 min depois de uma perda)</li>
+          <li>Risco de 1% do equity por trade (0,5% contra o BTC)</li>
+          <li>Margem máx. 20% do equity por posição (notional ≤ 1× equity) e 80% no total · máx. 5 posições</li>
+          <li>Quantidade em contratos inteiros (tamanho e mínimo reais de cada contrato)</li>
+          <li>Liquidação estimada a ~19% da entrada, muito para lá do SL máx. de 1,5%</li>
+          <li>Perda diária de 5% ⇒ pausa · drawdown de 30% ⇒ kill switch · cooldown de 10/30 min</li>
         </ul>
         <h3>4 · Saídas</h3>
         <ul>
-          <li><b>SL</b> = entrada − 1,5 ATR (ou abaixo do mínimo das 5 velas), limitado a 1%–6%</li>
-          <li><b>TP1</b> = +1,5R: vende 50% e o SL passa para breakeven</li>
-          <li><b>Trailing</b> após TP1: máximo − 2 ATR</li>
-          <li><b>TP2</b> = +3R: vende o resto</li>
-          <li><b>Time stop</b> 48h · <b>Estagnação</b>: 12h sem +0,5R · <b>Tendência 1h quebrou</b> antes do TP1</li>
+          <li><b>SL</b> = além do extremo das últimas 5 velas / EMA20 ± 0,5 ATR (0,4%–1,5%)</li>
+          <li><b>TP1</b> +1,5R (limite): fecha 50% e o SL passa para breakeven · <b>trailing</b> 2 ATR · <b>TP2</b> +3R (limite)</li>
+          <li><b>Saída técnica:</b> a vela de 1m fecha do outro lado da EMA20 ou a EMA9 cruza contra a posição</li>
+          <li><b>Time stop</b> 90 min · <b>Estagnação</b>: 30 min sem +0,5R</li>
         </ul>
-        <p class="muted">Custos simulados: taxa taker 0,05% por lado + slippage 0,05%.</p>
+        <p class="muted">Custos reais: taxas taker/maker de cada contrato (MEXC) · compras ao ask e vendas ao bid (spread incluído) + 0,02% de slippage · funding real nas horas de liquidação de cada contrato.</p>
       </div>
       <div class="card"><div class="card-h"><h2>Parâmetros ativos (config.py)</h2></div><div id="cfg" class="stats-table"></div></div>
     </div>

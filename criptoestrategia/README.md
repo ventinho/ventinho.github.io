@@ -1,83 +1,97 @@
-# CriptoEstratégia — bot de paper trading na MEXC
+# CriptoEstratégia — bot de paper trading nos Futuros da MEXC (5x)
 
-Bot de criptomoedas com **entradas fictícias** (paper trading). Arranca com **100 USDT**, usa **preços reais da MEXC** e grava tudo numa base de dados SQLite. Inclui um **dashboard web completo**.
+Bot de criptomoedas com **entradas fictícias** (paper trading) nos **futuros perpétuos USDT da MEXC**, com **alavancagem de 5x** (margem isolada), long e short. Arranca com **100 USDT** e usa **só dados reais da MEXC Futuros**: contratos, livro de ofertas, velas, taxas e funding. A estratégia é a do vídeo: **gráfico de 1 minuto com EMA 9 e EMA 20**. Grava tudo em SQLite e inclui um **dashboard web completo** em **http://192.168.1.64:8050**.
 
-> Não usa chaves de API e não envia ordens reais. Lê apenas dados públicos de mercado.
+> Não usa chaves de API e não envia ordens reais. Lê apenas dados públicos de `contract.mexc.com`.
 
-## Instalação no ambiente de trabalho
+## Arrancar com Docker (recomendado)
 
-1. Instala o **Python 3.10 ou superior** (https://www.python.org/downloads/). No Windows, marca *"Add Python to PATH"*.
-2. Copia esta pasta `criptoestrategia` para o ambiente de trabalho.
-3. Arranca o bot:
-   - **Windows:** duplo clique em `iniciar.bat`
-   - **Mac/Linux:** `./iniciar.sh` ou `python3 main.py`
-4. O dashboard abre sozinho em **http://localhost:8050**.
+Precisas do Docker com o plugin Compose (Docker Desktop no Windows/Mac, ou Docker Engine no Linux).
 
-Não há dependências para instalar: o bot usa só a biblioteca padrão do Python, e o Chart.js já vem incluído em `static/`.
-
+```bash
+cd criptoestrategia
+docker compose up -d --build      # cria a imagem e arranca em segundo plano
+docker compose logs -f            # ver o que o bot está a fazer
+docker compose down               # parar
 ```
-python main.py            # dados reais da MEXC (deixa o PC ligado)
-python main.py --demo     # mercado simulado e acelerado, para ver o bot e o dashboard em ação
+
+- Dashboard: **http://192.168.1.64:8050** (a partir de qualquer PC ou telemóvel na tua rede)
+- A base de dados fica em `./data/criptoestrategia.db`, fora do contentor, e sobrevive a reinícios e atualizações.
+- O contentor reinicia sozinho (`restart: unless-stopped`) depois de um reboot ou de uma falha.
+- Para recomeçar do zero: `docker compose down`, apagar a pasta `data/` e voltar a fazer `docker compose up -d`.
+
+**O IP está fixo no `docker-compose.yml`** (`"192.168.1.64:8050:8050"`). Se o IP do PC mudar, o contentor não arranca. Nesse caso troca para `"8050:8050"`, ou fixa o IP do PC no router (reserva DHCP).
+
+> **Windows:** se outro PC da rede não conseguir abrir o dashboard, permite a porta 8050 na Firewall do Windows.
+
+## Arrancar sem Docker
+
+Precisas do Python 3.10 ou superior e não há dependências para instalar.
+
+```bash
+python main.py            # escuta em 0.0.0.0:8050 → http://192.168.1.64:8050
 python main.py --reset    # apaga o histórico e recomeça com 100 USDT
-python main.py --port 9000
+python main.py --host 192.168.1.64 --port 8050
 ```
 
-O modo real grava em `criptoestrategia.db` e o modo demo em `demo_criptoestrategia.db`. As duas bases de dados nunca se misturam.
+No Windows também podes dar duplo clique em `iniciar.bat`.
 
-## Estratégia
+## Estratégia — EMA 9 / EMA 20 no 1 minuto (long e short)
 
 | Etapa | Regra |
 |---|---|
-| **Universo** | De 4 em 4 horas: pares USDT com volume 24h ≥ 2M, sem stablecoins, tokens alavancados nem moedas com variação > 80%. Do top 150 por volume escolhe os **50** com melhor score **60% rank de volume + 40% rank de volatilidade** |
-| **Tendência (1h)** | EMA50 > EMA200 e preço > EMA50 |
-| **Gatilho (15m, vela fechada)** | EMA9 > EMA21 > EMA50 e (cruzamento EMA9/21 nas últimas 3 velas **ou** pullback à EMA21 com vela verde) |
-| **Confirmações** | RSI 50–70 · ADX ≥ 20 · MACD a acelerar (> 0 no cruzamento) · volume ≥ 1,2× a média (cruzamento) ou ≥ 0,8× (pullback) · ATR entre 0,25% e 6% · preço no máximo 1,5 ATR acima da EMA21 |
-| **Score** | 0–100 (ADX, volume, RSI, tendência 1h, momentum, gatilho). Entra com score ≥ 55, ou ≥ 70 se o BTC estiver abaixo da EMA50 1h. Os melhores scores entram primeiro |
-| **Tamanho da posição** | Risco de **1% do equity** por trade (0,5% com o BTC em baixa). Máximo de 25% do equity por posição e de **5 posições** em simultâneo. Mínimo de 5 USDT por ordem |
-| **Stop loss** | Entrada − 1,5 ATR (ou abaixo do mínimo das últimas 5 velas), sempre entre 1% e 6% |
-| **TP1** | +1,5R: vende **50%** e o SL passa para **breakeven** |
-| **Trailing** | Depois do TP1: máximo − 2 ATR |
-| **TP2** | +3R: vende o resto |
-| **Outras saídas** | Time stop às 48h · estagnação (12h sem chegar a +0,5R) · tendência 1h quebrou antes do TP1 · fecho manual no dashboard |
-| **Proteções** | Perda diária de 5% ⇒ sem novas entradas até às 00:00 UTC · drawdown de 30% ⇒ kill switch · cooldown de 60 min por moeda (180 min depois de uma perda) |
-| **Custos** | Taxa taker de 0,05% por lado + slippage de 0,05% |
+| **Universo** | De hora a hora: contratos perpétuos `*_USDT` ativos da MEXC, **só criptomoedas** (ações, ETFs, metais e forex ficam de fora), volume 24h ≥ 2M USDT, spread ≤ 0,10%, alavancagem máxima ≥ 5x. Do top 100 por volume escolhe os **50** com melhor score **60% rank de volume + 40% rank de volatilidade** |
+| **LONG (vídeo)** | **EMA9 acima da EMA20** e EMA20 a subir · gatilho: **cruzamento para cima** (últimas 2 velas, vela fecha acima da EMA9) **ou pullback** à zona EMA9/EMA20 com vela verde |
+| **SHORT (espelho)** | **EMA9 abaixo da EMA20** e EMA20 a descer · gatilho: **cruzamento para baixo** ou **pullback** com vela vermelha |
+| **Filtros extra** | Volume ≥ 1,3× a média (cruzamento) / ≥ 0,8× (pullback) · RSI 50–75 (short 25–50) · ATR do 1m entre 0,08% e 1,5% · no máximo 2 ATR da EMA20 · tendência do 15m a favor (EMA50). `FILTRO_TENDENCIA = False` usa só o 1m, como no vídeo |
+| **Score** | 0–100. Entra com ≥ 50, ou ≥ 65 contra a tendência do BTC (15m). Os melhores scores entram primeiro |
+| **Alavancagem e margem** | **5x, margem isolada** · risco de 1% do equity por trade (0,5% contra o BTC) · margem máx. 20% do equity por posição e 80% no total · máx. 5 posições |
+| **Contratos** | Quantidade arredondada a contratos inteiros com o **tamanho e mínimo reais** de cada contrato |
+| **Stop loss** | Além do extremo das últimas 5 velas / EMA20 ± 0,5 ATR, sempre entre 0,4% e 1,5% |
+| **TP1** | +1,5R (ordem limite): fecha **50%** e o SL passa para **breakeven** |
+| **Trailing / TP2** | Depois do TP1: trailing a 2 ATR · TP2 a +3R (ordem limite) |
+| **Saída técnica (vídeo)** | A vela de 1m fecha do outro lado da EMA20 ou a EMA9 cruza contra a posição |
+| **Outras saídas** | Time stop aos 90 min · estagnação (30 min sem +0,5R) · **liquidação** (simulada se o preço chegar lá) · fecho manual |
+| **Proteções** | Perda diária de 5% ⇒ pausa até às 00:00 UTC · drawdown de 30% ⇒ kill switch · cooldown de 10 min por contrato (30 min depois de uma perda) |
+| **Custos reais** | Taxas taker/maker **de cada contrato** (lidas da MEXC) · compras ao **ask** e vendas ao **bid** (spread incluído) + 0,02% de slippage · **funding** real cobrado/recebido nas horas de liquidação de cada contrato |
 
-Todos os parâmetros estão em `config.py`, comentados.
+Com 5x e SL entre 0,4% e 1,5%, a liquidação fica a cerca de 19% da entrada. O stop é sempre atingido muito antes.
+
+Todos os parâmetros estão em `config.py`, comentados. Depois de os alterares, faz `docker compose up -d --build`.
 
 ## Dashboard
 
-- **Visão geral:** equity, PnL total, realizado e flutuante, win rate, profit factor, expectativa, drawdown, Sharpe/Sortino, sequências, curva de equity, drawdown, PnL diário e o último scan (com o motivo de rejeição de cada par)
-- **Posições:** PnL flutuante em tempo real, R atual, SL/TP1/TP2, barra SL↔alvo e botão de fecho manual
-- **Histórico:** todos os trades com MFE/MAE, taxas e motivo de entrada/saída, todas as execuções e exportação em CSV
-- **Análise:** mais de 35 estatísticas, distribuição de R-múltiplos, motivos de saída, PnL por moeda, por hora e por dia da semana
-- **Universo:** o top 50 atual com volume, volatilidade e variação 24h
-- **Sinais:** cada sinal detetado e a decisão tomada (entrou ou foi ignorado, e porquê)
-- **Registo / Estratégia:** eventos do bot e parâmetros ativos
-- **Controlos:** Pausar, Retomar (também limpa o kill switch) e Fechar tudo
+- **Visão geral:** equity, PnL total, realizado e flutuante, margem usada e disponível, exposição e alavancagem efetiva, win rate, profit factor, expectativa, drawdown, Sharpe/Sortino, curva de equity, drawdown, PnL diário e o motivo de rejeição de cada contrato no último scan
+- **Posições:** lado, alavancagem, contratos, margem, PnL flutuante, **ROE**, R atual, SL/TP1/TP2, **preço de liquidação** e distância até ele, funding e botão de fecho
+- **Histórico:** todos os trades (notional, margem, PnL, ROE, R, MFE/MAE, taxas, funding) e execuções, com exportação em CSV
+- **Análise:** mais de 45 estatísticas, **long vs short**, R-múltiplos, motivos de saída, PnL por contrato, por hora e por dia da semana
+- **Universo:** os 50 contratos com volume, volatilidade, spread, funding e taxas
+- **Sinais**, **Registo** e **Estratégia**
 
-## Base de dados (`criptoestrategia.db`)
+> Não há login: os botões Pausar e Fechar ficam acessíveis a quem estiver na tua rede local. Não abras a porta 8050 no router para a internet.
+
+## Base de dados (`data/criptoestrategia.db`)
 
 | Tabela | Conteúdo |
 |---|---|
-| `trades` | Cada trade: entrada, SL/TP, risco (1R), score, regime, máximo/mínimo, **PnL flutuante**, PnL realizado, taxas, saída, PnL final, %, R, MFE/MAE e duração |
-| `fills` | Cada execução (ENTRADA, TP1, TP2, STOP LOSS, TRAILING…) com preço, quantidade, taxa, PnL e cash depois |
-| `equity` | Curva de equity de minuto a minuto: cash, equity, PnL flutuante e realizado, exposição e drawdown |
-| `universe` | O top 50 atual |
-| `signals` | Sinais e decisões, com os indicadores em JSON |
+| `trades` | Cada trade: lado, alavancagem, contratos, notional, margem, entrada, SL/TP, liquidação, risco (1R), **PnL flutuante**, PnL realizado, taxas, funding, saída, PnL final, %, **ROE**, R, MFE/MAE e duração |
+| `fills` | Cada execução (ENTRADA, TP1, TP2, STOP LOSS, TRAILING, FECHO ABAIXO/ACIMA EMA20, FUNDING, LIQUIDAÇÃO…) com preço, quantidade, taxa, PnL e saldo depois |
+| `equity` | Curva a cada 30 s: saldo, equity, margem usada, PnL flutuante e realizado, exposição e drawdown |
+| `universe` | Os 50 contratos atuais, com spread, funding e taxas |
+| `signals` | Sinais (long/short) e decisões, com os indicadores em JSON |
 | `events` | Registo de eventos |
-| `state` | Estado da conta (cash, pico, pausa, kill switch…) |
-
-Podes abrir a base de dados com o [DB Browser for SQLite](https://sqlitebrowser.org/) ou exportar CSV no dashboard.
+| `state` | Estado da conta |
 
 ## Ficheiros
 
 ```
+Dockerfile, docker-compose.yml   execução em Docker
 main.py        arranque (bot + dashboard)
 config.py      todos os parâmetros
-engine.py      motor: universo, scan, entradas, gestão de posições e proteções
-strategy.py    regras de entrada e score
+engine.py      motor de futuros: margem, contratos, long/short, liquidação, funding, saídas
+strategy.py    regras EMA 9/20 (long e short) e score
 indicators.py  EMA, RSI, ATR, MACD, ADX (Python puro)
-exchange.py    API pública da MEXC + mercado simulado (--demo)
+exchange.py    API pública da MEXC Futuros (dados reais)
 database.py    SQLite
 stats.py       estatísticas
 server.py      API do dashboard
@@ -86,6 +100,7 @@ static/        dashboard (HTML/CSS/JS + Chart.js)
 
 ## Avisos
 
-- Os resultados do modo `--demo` vêm de um mercado **sintético** e não dizem nada sobre o desempenho real. Avalia a estratégia com pelo menos 2–4 semanas de paper trading em dados reais (mínimo de 50–100 trades) antes de pensar em capital real.
-- O bot verifica preços a cada 10 s. Em movimentos bruscos, o preço de saída simulado pode ser pior do que o SL, tal como numa ordem real a mercado.
+- **A alavancagem amplifica ganhos e perdas.** No 1 minuto, taxas, spread e funding pesam muito: acompanha no dashboard as taxas pagas, o funding e a expectativa por trade.
+- Avalia a estratégia com pelo menos 2–4 semanas de paper trading (mínimo de 100–200 trades) antes de pensar em capital real.
+- O bot verifica preços a cada 3 s. Em movimentos bruscos, o preço de saída simulado pode ser pior do que o SL, tal como numa ordem real a mercado.
 - Isto não é aconselhamento financeiro.
