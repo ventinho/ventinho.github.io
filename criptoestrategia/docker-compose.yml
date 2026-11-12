@@ -5,9 +5,9 @@ services:
     container_name: criptoestrategia
     restart: unless-stopped
     ports:
-      # Dashboard em http://192.168.1.64:8050
-      # Se o IP do PC mudar, troca para "8050:8050" (todas as interfaces).
-      - "192.168.1.64:8050:8050"
+      # Publica em todas as interfaces do PC: abre em http://192.168.1.64:8050 (e http://localhost:8050).
+      # Não fixamos o IP aqui: no Docker Desktop (Windows) isso costuma impedir o contentor de arrancar.
+      - "8050:8050"
     volumes:
       - ./data:/app/data          # base de dados SQLite fica fora do contentor
     environment:

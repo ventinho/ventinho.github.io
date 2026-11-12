@@ -20,9 +20,16 @@ docker compose down               # parar
 - O contentor reinicia sozinho (`restart: unless-stopped`) depois de um reboot ou de uma falha.
 - Para recomeçar do zero: `docker compose down`, apagar a pasta `data/` e voltar a fazer `docker compose up -d`.
 
-**O IP está fixo no `docker-compose.yml`** (`"192.168.1.64:8050:8050"`). Se o IP do PC mudar, o contentor não arranca. Nesse caso troca para `"8050:8050"`, ou fixa o IP do PC no router (reserva DHCP).
+A porta é publicada em todas as interfaces do PC (`"8050:8050"`), por isso o dashboard abre em **http://192.168.1.64:8050** e também em **http://localhost:8050**. Convém fixar o IP do PC no router (reserva DHCP) para o endereço não mudar.
 
-> **Windows:** se outro PC da rede não conseguir abrir o dashboard, permite a porta 8050 na Firewall do Windows.
+### Se aparecer "recusou estabelecer ligação" (ERR_CONNECTION_REFUSED)
+
+Isto quer dizer que nada está a escutar na porta 8050. Verifica por esta ordem (PowerShell, dentro da pasta `criptoestrategia`):
+
+1. `docker compose ps`: o contentor `criptoestrategia` tem de aparecer como `Up` / `healthy`. Se não aparecer, corre `docker compose up -d --build`.
+2. `docker compose logs --tail 50`: mostra erros de arranque ou de ligação à MEXC.
+3. Abre **http://localhost:8050** no próprio PC. Se abrir aí mas não em 192.168.1.64, confirma o IP com `ipconfig` (Endereço IPv4) e abre a firewall (PowerShell como administrador):
+   `New-NetFirewallRule -DisplayName "CriptoEstrategia 8050" -Direction Inbound -Protocol TCP -LocalPort 8050 -Action Allow`
 
 ## Arrancar sem Docker
 
